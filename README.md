@@ -24,3 +24,6 @@ You can write the same scripts for both platforms.
 
 
 
+License
+-------------
+MIT license
