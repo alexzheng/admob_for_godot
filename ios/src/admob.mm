@@ -8,9 +8,10 @@
 
 
 
-#include "core/globals.h"
+//#include "core/globals.h"
 #include "core/variant.h"
 #include "core/message_queue.h"
+
 #import <GoogleMobileAds/GoogleMobileAds.h>
 #import <UIKit/UIKit.h>
 #import <AudioToolbox/AudioToolbox.h>
@@ -18,6 +19,13 @@
 #include "admob.h"
 
 #import "app_delegate.h"
+
+#if VERSION_MAJOR == 3
+#define CLASS_DB ClassDB
+#define _MD D_METHOD
+#else
+#define CLASS_DB ObjectTypeDB
+#endif
 
 
 
@@ -59,20 +67,20 @@ Admob::~Admob(){
 
 void Admob::_bind_methods()
 {
-    ObjectTypeDB::bind_method(_MD("init"),                  &Admob::init);
-    ObjectTypeDB::bind_method(_MD("loadBanner"),    &Admob::loadBanner);
+    CLASS_DB::bind_method(_MD("init"),                  &Admob::init);
+    CLASS_DB::bind_method(_MD("loadBanner"),    &Admob::loadBanner);
     
-    ObjectTypeDB::bind_method(_MD("showBanner"),      &Admob::showBanner);
-    ObjectTypeDB::bind_method(_MD("hideBanner"),     &Admob::hideBanner);
-    ObjectTypeDB::bind_method(_MD("loadInterstitial"),       &Admob::loadInterstitial);
-    ObjectTypeDB::bind_method(_MD("showInterstitial"),         &Admob::showInterstitial);
-    ObjectTypeDB::bind_method(_MD("loadRewardedVideo"),        &Admob::loadRewardedVideo);
-    ObjectTypeDB::bind_method(_MD("showRewardedVideo"),    &Admob::showRewardedVideo);
-    ObjectTypeDB::bind_method(_MD("setTest"),    &Admob::setTest);
-    ObjectTypeDB::bind_method(_MD("setTop"),    &Admob::setTop);
-    ObjectTypeDB::bind_method(_MD("isInterstitialReady"),    &Admob::isInterstitialReady);
-    ObjectTypeDB::bind_method(_MD("isRewardedVideoAdReady"),    &Admob::isRewardedVideoAdReady);
-    ObjectTypeDB::bind_method(_MD("vibrate"),    &Admob::vibrate);
+    CLASS_DB::bind_method(_MD("showBanner"),      &Admob::showBanner);
+    CLASS_DB::bind_method(_MD("hideBanner"),     &Admob::hideBanner);
+    CLASS_DB::bind_method(_MD("loadInterstitial"),       &Admob::loadInterstitial);
+    CLASS_DB::bind_method(_MD("showInterstitial"),         &Admob::showInterstitial);
+    CLASS_DB::bind_method(_MD("loadRewardedVideo"),        &Admob::loadRewardedVideo);
+    CLASS_DB::bind_method(_MD("showRewardedVideo"),    &Admob::showRewardedVideo);
+    CLASS_DB::bind_method(_MD("setTest"),    &Admob::setTest);
+    CLASS_DB::bind_method(_MD("setTop"),    &Admob::setTop);
+    CLASS_DB::bind_method(_MD("isInterstitialReady"),    &Admob::isInterstitialReady);
+    CLASS_DB::bind_method(_MD("isRewardedVideoAdReady"),    &Admob::isRewardedVideoAdReady);
+    CLASS_DB::bind_method(_MD("vibrate"),    &Admob::vibrate);
     
 };
 
@@ -81,8 +89,9 @@ void Admob::vibrate(){
 }
 
 
-void Admob::init(int inst_id, const String& app_id){
+void Admob::init(bool isReal, int inst_id, const String& app_id){
     //[GADMobileAds configureWithApplicationID:[NSString stringWithUTF8String:app_id]];
+    isTest = !isReal;
     instance_id = inst_id;
     [GADMobileAds configureWithApplicationID:[NSString stringWithCString:app_id.utf8().get_data() encoding:NSUTF8StringEncoding]];
     
@@ -90,12 +99,23 @@ void Admob::init(int inst_id, const String& app_id){
 
 
 void Admob::loadBanner(const String& banner_id, bool isTop){
-    bannerView = [[GADBannerView alloc] initWithAdSize:kGADAdSizeBanner];
+     NSLog(@"loadBanner Running on %@ thread", [NSThread currentThread]);
+
+     bool isPortrait = [UIApplication sharedApplication].statusBarOrientation == UIInterfaceOrientationPortrait || [UIApplication sharedApplication].statusBarOrientation == UIInterfaceOrientationPortraitUpsideDown;
+
+     GADAdSize adSize = kGADAdSizeSmartBannerLandscape;
+
+     if (isPortrait)
+        adSize = kGADAdSizeSmartBannerPortrait;
+
+    bannerView = [[GADBannerView alloc] initWithAdSize:adSize]; //kGADAdSizeBanner];
     //bannerView.adUnitID = [NSString stringWithUTF8String:banner_id];
     bannerView.adUnitID = [NSString stringWithCString:banner_id.utf8().get_data() encoding:NSUTF8StringEncoding];
     bannerView.delegate = delegate;
     
     UIViewController *rootViewController = (ViewController *)((AppDelegate *)[[UIApplication sharedApplication] delegate]).window.rootViewController;
+   
+    //UIViewController *rootViewController = [AppDelegate getViewController];
     bannerView.rootViewController = rootViewController;
     
     GADRequest *request = [GADRequest request];
@@ -118,6 +138,7 @@ void Admob::showBanner(){
    
     if (bannerView != NULL) {
         UIViewController *rootViewController = [[UIApplication sharedApplication] delegate].window.rootViewController;
+        //UIViewController *rootViewController = [AppDelegate getViewController];
         [rootViewController.view addSubview:bannerView];
         set_position();
     }
@@ -134,7 +155,7 @@ void Admob::hideBanner(){
 
 void Admob::loadInterstitial(const String& adUnitID){
     
-    NSLog(@"loadInterstitial Running on %@ thread", [NSThread currentThread]);
+    NSLog(@"loadInterstitial Running on %@ thread %i", [NSThread currentThread], [[UIDevice currentDevice] orientation]);
     //if (adUnitID != "")
         //interstitial_id = [NSString stringWithUTF8String:id];
         //interstitial_id = [NSString stringWithCString:adUnitID.utf8().get_data() encoding:NSUTF8StringEncoding];
@@ -176,8 +197,11 @@ bool Admob::showInterstitial(){
     NSLog(@"showInterstitial Running on %@ thread", [NSThread currentThread]);
     if (interstitial != nil){
         if (interstitial.isReady) {
-             UIViewController *rootViewController = (ViewController *)((AppDelegate *)[[UIApplication sharedApplication] delegate]).window.rootViewController;
+             //UIViewController *rootViewController = (ViewController *)((AppDelegate *)[[UIApplication sharedApplication] delegate]).window.rootViewController;
+            UIViewController *rootViewController = [AppDelegate getViewController];
             [interstitial presentFromRootViewController:rootViewController];
+            NSLog(@"rootViewController %@", rootViewController);
+            NSLog(@"interstitial %@", interstitial);
             return true;
         }
     }
@@ -240,12 +264,17 @@ void Admob::setTop(bool top){
 
 void Admob::set_position(bool isTop){
     UIViewController *rootViewController = [[UIApplication sharedApplication] delegate].window.rootViewController;
+    //UIViewController *rootViewController = [AppDelegate getViewController];
     bannerView.translatesAutoresizingMaskIntoConstraints = NO;
     
     NSLayoutAttribute attribute = NSLayoutAttributeBottom;
     
+    bool isSmart = false;
+    
+    /*
     if (isTop)
         attribute = NSLayoutAttributeTop;
+    
     
     // Layout constraints that align the banner view to the bottom center of the screen.
     [rootViewController.view addConstraint:[NSLayoutConstraint constraintWithItem:bannerView
@@ -262,7 +291,64 @@ void Admob::set_position(bool isTop){
                                                                         attribute:NSLayoutAttributeCenterX
                                                                        multiplier:1
                                                                          constant:0]];
+      */
+     if (@available(ios 11.0, *)) {
+        UILayoutGuide *guide = rootViewController.view.safeAreaLayoutGuide; 
+        if (isSmart)
+            [NSLayoutConstraint activateConstraints:@[
+                                              [guide.leftAnchor constraintEqualToAnchor:bannerView.leftAnchor],
+                                              [guide.rightAnchor constraintEqualToAnchor:bannerView.rightAnchor],
+                                              [guide.bottomAnchor constraintEqualToAnchor:bannerView.bottomAnchor]
+                                              ]];
+        else
+            [NSLayoutConstraint activateConstraints:@[
+                                              [bannerView.centerXAnchor constraintEqualToAnchor:guide.centerXAnchor],
+                                              [bannerView.bottomAnchor constraintEqualToAnchor:guide.bottomAnchor]
+                                              ]];
+    } else {
+        if (isSmart){
+            [rootViewController.view addConstraint:[NSLayoutConstraint constraintWithItem:bannerView
+                                                                        attribute:NSLayoutAttributeLeading
+                                                                        relatedBy:NSLayoutRelationEqual
+                                                                           toItem:rootViewController.view
+                                                                        attribute:NSLayoutAttributeLeading
+                                                                       multiplier:1
+                                                                         constant:0]];
+            [rootViewController.view addConstraint:[NSLayoutConstraint constraintWithItem:bannerView
+                                                                                attribute:NSLayoutAttributeTrailing
+                                                                                relatedBy:NSLayoutRelationEqual
+                                                                                   toItem:rootViewController.view
+                                                                                attribute:NSLayoutAttributeTrailing
+                                                                               multiplier:1
+                                                                                 constant:0]];
+            [rootViewController.view addConstraint:[NSLayoutConstraint constraintWithItem:bannerView
+                                                                                attribute:NSLayoutAttributeBottom
+                                                                                relatedBy:NSLayoutRelationEqual
+                                                                                   toItem:rootViewController.bottomLayoutGuide
+                                                                                attribute:NSLayoutAttributeTop
+                                                                               multiplier:1
+                                                                         constant:0]];
+        }
+        else{
+            [rootViewController.view addConstraint:[NSLayoutConstraint constraintWithItem:bannerView
+                                                                        attribute:NSLayoutAttributeCenterX
+                                                                        relatedBy:NSLayoutRelationEqual
+                                                                           toItem:rootViewController.view
+                                                                        attribute:NSLayoutAttributeCenterX
+                                                                       multiplier:1
+                                                                         constant:0]];
+            [rootViewController.view addConstraint:[NSLayoutConstraint constraintWithItem:bannerView
+                                                                                attribute:NSLayoutAttributeBottom
+                                                                                relatedBy:NSLayoutRelationEqual
+                                                                                   toItem:rootViewController.bottomLayoutGuide
+                                                                                attribute:NSLayoutAttributeTop
+                                                                               multiplier:1
+                                                                                 constant:0]];
+        }
+    }
 }
+
+
 
 
 void Admob::call_multilevel(const StringName &p_method, const Variant **p_args, int p_argcount){
@@ -327,8 +413,6 @@ didFailToReceiveAdWithError:(GADRequestError *)error;
 
 
 
-
-
 #pragma mark GADInterstitialDelegate implementation
 
 - (void)interstitialDidReceiveAd:(GADInterstitial *)interstitial
@@ -336,6 +420,9 @@ didFailToReceiveAdWithError:(GADRequestError *)error;
     NSLog(@"interstitialDidReceiveAd Running on %@ thread", [NSThread currentThread]);
 
     _admob->call_multilevel("_on_interstitial_loaded", NULL, 0);
+
+    //_admob->showInterstitial();
+
 }
 - (void)interstitial:(GADInterstitial *)interstitial
 didFailToReceiveAdWithError:(GADRequestError *)error;
@@ -352,23 +439,21 @@ didFailToReceiveAdWithError:(GADRequestError *)error;
     
 }
 
+
 - (void)interstitialDidFailToPresentScreen:(GADInterstitial *)ad
 {
     
 }
 - (void)interstitialWillDismissScreen:(GADInterstitial *)interstitial
 {
-    NSLog(@"interstitialWillDismissScreen");
+    NSLog(@"interstitialWillDismissScreen Running on %@ thread", [NSThread currentThread]);
      _admob->call_multilevel("_on_interstitial_will_dismiss", NULL, 0);
 }
 - (void)interstitialDidDismissScreen:(GADInterstitial *)interstitial
 {
-    NSLog(@"interstitialDidDismissScreen");
-
     NSLog(@"interstitialDidDismissScreen Running on %@ thread", [NSThread currentThread]);
     
-     _admob->call_multilevel("_on_interstitial_did_dismiss", NULL, 0);
-    
+     _admob->call_multilevel("_on_interstitial_closed", NULL, 0);
 }
 - (void)interstitialWillLeaveApplication:(GADInterstitial *)interstitial
 {
@@ -405,7 +490,7 @@ didFailToReceiveAdWithError:(GADRequestError *)error;
   NSLog(@"%@", rewardMessage);
 
   Variant type = Variant([reward.type UTF8String]);
-  Variant amount = Variant([reward.amount integerValue]);
+  Variant amount = Variant([reward.amount doubleValue]);
 
   const Variant *args[2] = {&type, &amount};
   _admob->call_multilevel("_on_rewarded", args, 2);

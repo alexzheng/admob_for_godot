@@ -9,8 +9,10 @@
 #ifndef admob_h
 #define admob_h
 
+//@import GoogleMobileAds;
 
-#include "reference.h"
+#include "core/version.h"
+#include "core/reference.h"
 #include <objc/objc.h>
 
 #ifdef __OBJC__
@@ -31,7 +33,12 @@ typedef void * AdmobAdsDelegatePtr;
 
 
 class Admob : public Reference {
+  
+#if VERSION_MAJOR == 3
+    GDCLASS(Admob, Reference);
+#else
     OBJ_TYPE(Admob, Reference);
+#endif
     
     static void _bind_methods();
     
@@ -54,7 +61,7 @@ public:
     ~Admob();
     Admob();
     
-    void init(int inst_id, const String& app_id);
+    void init(bool isReal, int inst_id, const String& app_id);
     void loadBanner(const String& banner_id, bool isTop = false);
     void showBanner();
     void hideBanner();

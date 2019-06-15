@@ -15,9 +15,11 @@ import android.util.Log;
 import java.util.Locale;
 import android.view.Gravity;
 import android.view.View;
+import android.os.Bundle;
 
 import com.google.android.gms.ads.AdRequest;
 import com.google.android.gms.ads.MobileAds;
+import com.google.ads.mediation.admob.AdMobAdapter;
 import com.google.android.gms.ads.reward.RewardItem;
 import com.google.android.gms.ads.reward.RewardedVideoAd;
 import com.google.android.gms.ads.reward.RewardedVideoAdListener;
@@ -31,7 +33,11 @@ public class GodotAdMob extends Godot.SingletonBase
 	private InterstitialAd interstitialAd = null; // Interstitial object
 	private AdView adView = null; // Banner view
 
-	private boolean isTest = false; // Store if is real or not
+	private boolean isReal = false; // Store if is real or not
+	private boolean isForChildDirectedTreatment = false; // Store if is children directed treatment desired
+	private String maxAdContentRating = ""; // Store maxAdContentRating ("G", "PG", "T" or "MA")
+	private Bundle extras = null;
+
 
 	private FrameLayout layout = null; // Store the layout
 	private FrameLayout.LayoutParams adParams = null; // Store the layout params
@@ -43,20 +49,59 @@ public class GodotAdMob extends Godot.SingletonBase
 
 	/**
 	 * Prepare for work with AdMob
-	 * @param boolean isTest Tell if the enviroment is for real or test
+	 * @param boolean isReal Tell if the enviroment is for real or test
+	 * @param int gdscript instance id
 	 */
-	public void init(int instance_id, String app_id)
+	public void init(boolean isReal, int instance_id, String app_id) {
+		this.initWithContentRating(isReal, instance_id, false, "", app_id);
+	}
+
+	/**
+	 * Init with content rating additional options 
+	 * @param boolean isReal Tell if the enviroment is for real or test
+	 * @param int gdscript instance id
+	 * @param boolean isForChildDirectedTreatment
+	 * @param String maxAdContentRating must be "G", "PG", "T" or "MA"
+	 */
+	public void initWithContentRating(boolean isReal, int instance_id, boolean isForChildDirectedTreatment, String maxAdContentRating, String app_id)
 	{
-		//this.isTest = isTest;
+		this.isReal = isReal;
 		this.instance_id = instance_id;
+		this.isForChildDirectedTreatment = isForChildDirectedTreatment;
+		this.maxAdContentRating = maxAdContentRating;
+		if (maxAdContentRating != null && maxAdContentRating != "")
+		{
+			extras = new Bundle();
+			extras.putString("max_ad_content_rating", maxAdContentRating);
+		}
 		MobileAds.initialize(activity, app_id);
-		Log.d("godot", "AdMob: init");
+		Log.d("godot", "AdMob: init with content rating options");
 	}
 
-	public void setTest(boolean test){
-		isTest = test;
-	}
 
+	/**
+	 * Returns AdRequest object constructed considering the parameters set in constructor of this class.
+	 * @return AdRequest object
+	 */
+	private AdRequest getAdRequest()
+	{
+		AdRequest.Builder adBuilder = new AdRequest.Builder();
+		AdRequest adRequest;
+		if (!this.isForChildDirectedTreatment && extras != null)
+		{
+			adBuilder.addNetworkExtrasBundle(AdMobAdapter.class, extras);
+		}
+		if (this.isForChildDirectedTreatment)
+		{
+			adBuilder.tagForChildDirectedTreatment(true);
+		}
+		if (!isReal) {
+			adBuilder.addTestDevice(AdRequest.DEVICE_ID_EMULATOR);
+			adBuilder.addTestDevice(getAdmobDeviceId());
+		}
+		adRequest = adBuilder.build();
+		return adRequest;
+	}
 
 	/* Rewarded Video
 	 * ********************************************************************** */
@@ -112,6 +157,12 @@ public class GodotAdMob extends Godot.SingletonBase
 						Log.w("godot", "AdMob: onRewardedVideoStarted");
 						GodotLib.calldeferred(instance_id, "_on_rewarded_video_started", new Object[] { });
 					}
+
+					@Override
+					public void onRewardedVideoCompleted() {
+						Log.w("godot", "AdMob: onRewardedVideoCompleted");
+						GodotLib.calldeferred(instance_id, "_on_rewarded_video_completed", new Object[] { });
+					}
 				});
 
 			}
@@ -133,15 +184,7 @@ public class GodotAdMob extends Godot.SingletonBase
 				}
 
 				if (!rewardedVideoAd.isLoaded()) {
-					//rewardedVideoAd.loadAd(id, new AdRequest.Builder().build());
-
-					AdRequest.Builder adBuilder = new AdRequest.Builder();
-					adBuilder.tagForChildDirectedTreatment(true);
-					if (isTest) {
-						adBuilder.addTestDevice(AdRequest.DEVICE_ID_EMULATOR);
-						adBuilder.addTestDevice(getAdmobDeviceId());
-					}
-					rewardedVideoAd.loadAd(id, adBuilder.build());
+					rewardedVideoAd.loadAd(id, getAdRequest());
 				}
 			}
 		});
@@ -155,7 +198,7 @@ public class GodotAdMob extends Godot.SingletonBase
 		{
 			@Override public void run()
 			{
-				if (rewardedVideoAd != null && rewardedVideoAd.isLoaded()) {
+				if (rewardedVideoAd.isLoaded()) {
 					rewardedVideoAd.show();
 				}
 			}
@@ -212,7 +255,7 @@ public class GodotAdMob extends Godot.SingletonBase
 								break;
 							case AdRequest.ERROR_CODE_NETWORK_ERROR:
 								str	= "ERROR_CODE_NETWORK_ERROR";
-								//GodotLib.calldeferred(instance_id, "_on_admob_network_error", new Object[]{ });
+								GodotLib.calldeferred(instance_id, "_on_admob_network_error", new Object[]{ });
 								break;
 							case AdRequest.ERROR_CODE_NO_FILL:
 								str	= "ERROR_CODE_NO_FILL";
@@ -221,20 +264,13 @@ public class GodotAdMob extends Godot.SingletonBase
 								str	= "Code: " + errorCode;
 								break;
 						}
-						GodotLib.calldeferred(instance_id, "_on_admob_ad_failed_to_load", new Object[]{str});
 						Log.w("godot", "AdMob: onAdFailedToLoad -> " + str);
 					}
 				});
 				layout.addView(adView, adParams);
 
 				// Request
-				AdRequest.Builder adBuilder = new AdRequest.Builder();
-				adBuilder.tagForChildDirectedTreatment(true);
-				if (isTest) {
-					adBuilder.addTestDevice(AdRequest.DEVICE_ID_EMULATOR);
-					adBuilder.addTestDevice(getAdmobDeviceId());
-				}
-				adView.loadAd(adBuilder.build());
+				adView.loadAd(getAdRequest());
 			}
 		});
 	}
@@ -266,6 +302,11 @@ public class GodotAdMob extends Godot.SingletonBase
 		{
 			@Override public void run()
 			{
+				if (layout == null || adView == null || adParams == null)
+				{
+					return;
+				}
+
 				layout.removeView(adView); // Remove the old view
 
 				// Extract params
@@ -291,18 +332,15 @@ public class GodotAdMob extends Godot.SingletonBase
 				layout.addView(adView, adParams);
 
 				// Request
-				AdRequest.Builder adBuilder = new AdRequest.Builder();
-				adBuilder.tagForChildDirectedTreatment(true);
-				if (isTest) {
-					adBuilder.addTestDevice(AdRequest.DEVICE_ID_EMULATOR);
-					adBuilder.addTestDevice(getAdmobDeviceId());
-				}
-				adView.loadAd(adBuilder.build());
+				adView.loadAd(getAdRequest());
 
 				Log.d("godot", "AdMob: Banner Resized");
 			}
 		});
 	}
+
+
+
 
 	/**
 	 * Hide the banner
@@ -363,30 +401,35 @@ public class GodotAdMob extends Godot.SingletonBase
 					}
 
 					@Override
-					public void onAdClosed() {
-						GodotLib.calldeferred(instance_id, "_on_interstitial_did_dismiss", new Object[] { });
+					public void onAdFailedToLoad(int errorCode) {
+						Log.w("godot", "AdMob: onAdFailedToLoad(int errorCode) - error code: " + Integer.toString(errorCode));
+						Log.w("godot", "AdMob: _on_interstitial_not_loaded");
+						GodotLib.calldeferred(instance_id, "_on_interstitial_failed_to_load", new Object[] { });
+					}
 
-						/*
-						AdRequest.Builder adBuilder = new AdRequest.Builder();
-						adBuilder.tagForChildDirectedTreatment(true);
-						if (isTest) {
-							adBuilder.addTestDevice(AdRequest.DEVICE_ID_EMULATOR);
-							adBuilder.addTestDevice(getAdmobDeviceId());
-						}
-						interstitialAd.loadAd(adBuilder.build());
-						*/
+					@Override
+					public void onAdOpened() {
+						Log.w("godot", "AdMob: onAdOpened()");
+					}
+
+					@Override
+					public void onAdLeftApplication() {
+						Log.w("godot", "AdMob: onAdLeftApplication()");
+					}
+
+					@Override
+					public void onAdClosed() {
+						GodotLib.calldeferred(instance_id, "_on_interstitial_closed", new Object[] { });
+
+						//interstitialAd.loadAd(getAdRequest());
+
 						Log.w("godot", "AdMob: onAdClosed");
 					}
 				});
 
-				AdRequest.Builder adBuilder = new AdRequest.Builder();
-				adBuilder.tagForChildDirectedTreatment(true);
-				if (isTest) {
-					adBuilder.addTestDevice(AdRequest.DEVICE_ID_EMULATOR);
-					adBuilder.addTestDevice(getAdmobDeviceId());
-				}
 
-				interstitialAd.loadAd(adBuilder.build());
+
+				interstitialAd.loadAd(getAdRequest());
 			}
 		});
 	}
@@ -395,21 +438,19 @@ public class GodotAdMob extends Godot.SingletonBase
 	 * Show the interstitial
 	 */
 	public void showInterstitial()
-	{	
+	{
 		activity.runOnUiThread(new Runnable()
 		{
 			@Override public void run()
 			{
-				if (interstitialAd != null && interstitialAd.isLoaded()) {
+				if (interstitialAd.isLoaded()) {
 					interstitialAd.show();
 				} else {
-					Log.w("godot", "AdMob: _on_interstitial_not_loaded");
-					//GodotLib.calldeferred(instance_id, "_on_interstitial_not_loaded", new Object[] { });
+					Log.w("w", "AdMob: showInterstitial - interstitial not loaded");
 				}
 			}
 		});
 	}
-
 
 	/* Utils
 	 * ********************************************************************** */
@@ -471,8 +512,13 @@ public class GodotAdMob extends Godot.SingletonBase
 	public GodotAdMob(Activity p_activity) {
 		registerClass("AdMob", new String[] {
 			"init",
+			"initWithContentRating",
+			// banner
 			"loadBanner", "showBanner", "hideBanner", "getBannerWidth", "getBannerHeight", "resize",
-			"loadInterstitial", "showInterstitial", "loadRewardedVideo", "showRewardedVideo","setTest"
+			// Interstitial
+			"loadInterstitial", "showInterstitial",
+			// Rewarded video
+			"loadRewardedVideo", "showRewardedVideo"
 		});
 		activity = p_activity;
 	}
